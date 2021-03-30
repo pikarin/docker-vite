@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+
+UNAMEOUT="$(uname -s)"
+
+WHITE='\033[1;37m'
+NC='\033[0m'
+
+# Verify operating system is supported...
+case "${UNAMEOUT}" in
+    Linux*)             MACHINE=linux;;
+    Darwin*)            MACHINE=mac;;
+    *)                  MACHINE="UNKNOWN"
+esac
+
+if [ "$MACHINE" == "UNKNOWN" ]; then
+    echo "Unsupported operating system [$(uname -s)]. Only supports macOS, Linux, and Windows (WSL2)." >&2
+
+    exit 1
+fi
+
+export APP_SERVICE=${APP_SERVICE:-"dev.server"}
+export WWWUSER=${WWWUSER:-$UID}
+export WWWGROUP=${WWWGROUP:-$(id -g)}
+
+if [ "$MACHINE" == "linux" ]; then
+    export SEDCMD="sed -i"
+elif [ "$MACHINE" == "mac" ]; then
+    export SEDCMD="sed -i .bak"
+fi
+
+# Ensure that Docker is running...
+if ! docker info > /dev/null 2>&1; then
+    echo -e "${WHITE}Docker is not running.${NC}" >&2
+
+    exit 1
+fi
+
+# Determine if docker-compose currently up...
+PSRESULT="$(docker-compose ps -q)"
+
+if docker-compose ps | grep 'Exit'; then
+    echo -e "${WHITE}Shutting down old docker-compose processes...${NC}" >&2
+
+    docker-compose down > /dev/null 2>&1
+
+    EXEC="no"
+elif [ -n "$PSRESULT" ]; then
+    EXEC="yes"
+else
+    EXEC="no"
+fi
+
+# Function that outputs Sail is not running...
+function dev_server_is_not_running {
+    echo -e "${WHITE}Dev server is not running.${NC}" >&2
+    echo "" >&2
+    echo -e "${WHITE}You may Sail using the following commands:${NC} './docker-vite up' or './docker-vite up -d'" >&2
+
+    exit 1
+}
+
+if [ $# -gt 0 ]; then
+    # Source the ".env" file so Laravel's environment variables are available...
+    if [ -f ./.env ]; then
+        source ./.env
+    fi
+
+    # Proxy Node commands to the "node" binary on the application container...
+    if [ "$1" == "node" ]; then
+        shift 1
+
+        if [ "$EXEC" == "yes" ]; then
+            docker-compose exec \
+                -u vite \
+                "$APP_SERVICE" \
+                node "$@"
+        else
+            dev_server_is_not_running
+        fi
+
+    # Proxy NPM commands to the "npm" binary on the application container...
+    elif [ "$1" == "npm" ]; then
+        shift 1
+
+        if [ "$EXEC" == "yes" ]; then
+            docker-compose exec \
+                -u vite \
+                "$APP_SERVICE" \
+                npm "$@"
+        else
+            dev_server_is_not_running
+        fi
+
+    # Proxy NPX commands to the "npx" binary on the application container...
+    elif [ "$1" == "npx" ]; then
+        shift 1
+
+        if [ "$EXEC" == "yes" ]; then
+            docker-compose exec \
+                -u vite \
+                "$APP_SERVICE" \
+                npx "$@"
+        else
+            dev_server_is_not_running
+        fi
+
+    # Initiate a shell within the application container...
+    elif [ "$1" == "shell" ]; then
+        shift 1
+
+        if [ "$EXEC" == "yes" ]; then
+            docker-compose exec \
+                -u vite \
+                "$APP_SERVICE" \
+                sh
+        else
+            dev_server_is_not_running
+        fi
+
+    # Initiate a root user shell within the application container...
+    elif [ "$1" == "root-shell" ] ; then
+        shift 1
+
+        if [ "$EXEC" == "yes" ]; then
+            docker-compose exec \
+                "$APP_SERVICE" \
+                sh
+        else
+            dev_server_is_not_running
+        fi
+
+    # Pass unknown commands to the "docker-compose" binary...
+    else
+        docker-compose "$@"
+    fi
+else
+    docker-compose ps
+fi

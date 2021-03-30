@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  dev.server:
+    build:
+      context: .
+      dockerfile: dev.server.dockerfile
+      args:
+        WWWGROUP: '${WWWGROUP}'
+    image: docker-vite/app
+    container_name: dev.server
+    ports:
+      - 3000:3000
+    volumes:
+      - .:/app
